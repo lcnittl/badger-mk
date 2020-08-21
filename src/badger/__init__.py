@@ -215,74 +215,72 @@ class Badger:
     }
 
     actions = {
-        "eps": "inkscape --export-dpi={dpi} --export-text-to-path --export-filename={file_name}",
-        "png": "inkscape --export-dpi={dpi} --export-filename={file_name}",
-        "pdf": "inkscape --export-dpi={dpi} --export-pdf-version=1.5 --export-text-to-path --export-filename={file_name}",
-        "ps": "inkscape --export-dpi={dpi} --export-text-to-path --export-filename={file_name}",
+        "eps": "inkscape --export-dpi={dpi} --export-text-to-path --export-filename={file_out} {file_in}",
+        "png": "inkscape --export-dpi={dpi} --export-filename={file_out} {file_in}",
+        "pdf": "inkscape --export-dpi={dpi} --export-pdf-version=1.5 --export-text-to-path --export-filename={file_out} {file_in}",
+        "ps": "inkscape --export-dpi={dpi} --export-text-to-path --export-filename={file_out} {file_in}",
         "svg": "",
     }
 
-    # def __init__(self):
-    #    self.subst_delims = {
-    #        "jinja": (r"{{ ", r" }}"),
-    #        "win": (r"%", r"%"),
-    #        "shell": (r"${", r"}"),
-    #    }
-    #    super().__init__()
+    def __init__(self):
+        self.tempdir = Path(tempfile.mkdtemp(prefix="badger_"))
+
+    def __del__(self):
+        print("WOULD BE DELETING TEMPDIR NOW")
+        # shutil.rmtree(self.tempdir)
 
     def effect(self):
-        # Print all settings
-        # logger.debug(
-        #    "\n".join(f"{key}: {(val)}" for [key, val] in vars(args).items())
-        # )
-        # return
+        for page, graphic in enumerate(args.graphics_in):
+            with open(graphic, "r", encoding="utf-8") as svgfile:
+                self.document = svgfile.read()
+                self.new_doc = self.document
 
-        # csv.register_dialect("generator", "excel", skipinitialspace=True)
-        with open(args.data_in, encoding="utf-8") as csvfile:
-            data = csv.DictReader(
-                csvfile, dialect="excel", delimiter=self.col_delims[args.col_mode],
-            )
-            for row in data:
-                # logger.debug(
-                #   "\n".join(f"{key}: {(val)}" for [key, val] in row.items()) + "\n"
-                # )
-                # continue
-                export_filename = args.export_filename
+            with open(args.data_in, "r", encoding="utf-8") as csvfile:
+                data = csv.DictReader(
+                    csvfile, dialect="excel", delimiter=self.col_delims[args.col_mode],
+                )
+                for row in data:
+                    # logger.debug(
+                    #     "\n".join(f"{key}: {(val)}" for [key, val] in row.items()) + "\n"
+                    # )
 
-                with open(args.graphics_in[0], encoding="utf-8") as svgfile:
-                    self.document = svgfile.read()
-                    self.new_doc = self.document
+                    export_filename = args.export_filename
 
-                # TODO find common stem
+                    pages_filenames = []
+                    # TODO find common stem
 
-                for key, value in row.items():
-                    if key[0] + key[-1] == "<>":
-                        search_string = key.strip("<>")
-                    else:
-                        search_string = (
-                            self.subst_delims[args.subst_mode][0]
-                            + key
-                            + self.subst_delims[args.subst_mode][1]
-                        )
+                    for key, value in row.items():
+                        if key[0] + key[-1] == "<>":
+                            search_string = key.strip("<>")
+                        else:
+                            search_string = (
+                                self.subst_delims[args.subst_mode][0]
+                                + key
+                                + self.subst_delims[args.subst_mode][1]
+                            )
 
-                        export_filename = Path(
-                            str(export_filename).replace(search_string, value)
-                        )
+                            export_filename = Path(
+                                str(export_filename).replace(search_string, value)
+                            )
+                        self.new_doc = self.new_doc.replace(search_string, value)
 
-                    self.new_doc = self.new_doc.replace(search_string, value)
+                        if not value:
+                            logger.warning(
+                                f"Value of key '{key}' empty in row '{row}'."
+                            )
 
-                    if not value:
-                        logger.warning(f"Value of key '{key}' empty in row '{row}'.")
+            if self.new_doc == self.document:
+                logger.error(f"Nothing replaced from row '{row}'. Not exporting.")
+            else:
+                page_filename = TempDir / Path(
+                    f"{export_filename.stem}_{page}{export_filename.suffix}"
+                )
+                pages_filenames.append(page_filename)
+                if self.export(page_filename):
+                    return
 
-                if self.new_doc == self.document:
-                    logger.error(f"Nothing replaced from row '{row}'. Not exporting.")
-                else:
-                    if self.export(export_filename):
-                        return
-
-    def inport(self):
-        # use load from inkex.extensions.InputExtension?
-        logger.debug("inport")
+            print(f"Merge {pages_filenames} to {export_filename}")
+            # delete Temp Dir with Files?
 
     def export(self, export_filename: Path):
         # use save from inkex.extensions.OutputExtension?
@@ -304,25 +302,16 @@ class Badger:
             with open(temp_svg_file, "w", encoding="utf-8") as file:
                 file.write(self.new_doc)
 
-            # let Inkscape do the exporting
-            # logger.debug(actions[args.export_type])
             cmd = self.actions[args.export_type].format(
-                dpi=args.export_dpi, file_name=export_filename
+                dpi=args.export_dpi, file_out=export_filename, file_in=temp_svg_file
             )
             ret = subprocess.run(  # nosec
-                shlex.split(cmd), stdout=sys.stdout, stderr=sys.stderr,
-            )
-            # )
-
-            if ret.returncode > 0:
-                logger.error(f"Inkscape return code {ret.returncode}")
-                logger.debug(f"Inkscape return code {ret}")
-
-    def load(self, stream):
-        return str(stream.read(), "utf-8")
-
-    def save(self, stream):
-        pass
+                shlex.split(cmd, posix=os.name == "posix"),
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+            ).returncode
+            if ret:
+                logger.error(f"Inkscape return code {ret}")
 
     def run(self):
         self.effect()
