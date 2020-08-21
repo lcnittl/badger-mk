@@ -95,7 +95,7 @@ def parse_args() -> argparse.Namespace:
 
     input_grp = parser.add_argument_group(title="Input")
     input_grp.add_argument(
-        "-c",
+        "-C",
         "--col-mode",
         dest="col_mode",
         type=str,
@@ -113,15 +113,15 @@ def parse_args() -> argparse.Namespace:
         help="Substitution mode",
     )
     input_grp.add_argument(
-        "-d",
-        "--data-in",
-        dest="data_in",
+        "-c",
+        "--csv-in",
+        dest="csv_in_file",
         required=True,
         type=Path,
         help="Path to data file",
     )
     input_grp.add_argument(
-        dest="graphics_in",
+        dest="svg_in_files",
         metavar="graphics-file",
         nargs="+",
         type=Path,
@@ -222,6 +222,8 @@ class Badger:
         "svg": "",
     }
 
+    multipage_formats = [".pdf"]
+
     def __init__(self):
         self.tempdir = Path(tempfile.mkdtemp(prefix="badger_"))
 
@@ -229,92 +231,94 @@ class Badger:
         print("WOULD BE DELETING TEMPDIR NOW")
         # shutil.rmtree(self.tempdir)
 
-    def effect(self):
-        for page, graphic in enumerate(args.graphics_in):
-            with open(graphic, "r", encoding="utf-8") as svgfile:
-                self.document = svgfile.read()
+    def load(self):
+        with open(self.svg_in_file, "r", encoding="utf-8") as svgfile:
+            self.document = svgfile.read()
+
+    def process(self):
+        self.load()
+        with open(args.csv_in_file, "r", encoding="utf-8") as csvfile:
+            data = csv.DictReader(
+                csvfile, dialect="excel", delimiter=self.col_delims[args.col_mode],
+            )
+            for row in data:
+                logger.info(f"Processing row {row}")
+
                 self.new_doc = self.document
 
-            with open(args.data_in, "r", encoding="utf-8") as csvfile:
-                data = csv.DictReader(
-                    csvfile, dialect="excel", delimiter=self.col_delims[args.col_mode],
-                )
-                for row in data:
-                    # logger.debug(
-                    #     "\n".join(f"{key}: {(val)}" for [key, val] in row.items()) + "\n"
-                    # )
+                self.export_filename = args.export_filename
 
-                    export_filename = args.export_filename
+                for key, value in row.items():
+                    if key[0] + key[-1] == "<>":
+                        key_subst = key.strip("<>")
+                    else:
+                        key_subst = (
+                            self.subst_delims[args.subst_mode][0]
+                            + key
+                            + self.subst_delims[args.subst_mode][1]
+                        )
 
-                    pages_filenames = []
-                    # TODO find common stem
+                        self.export_filename = Path(
+                            str(self.export_filename).replace(key_subst, value)
+                        )
+                    self.new_doc = self.new_doc.replace(key_subst, value)
 
-                    for key, value in row.items():
-                        if key[0] + key[-1] == "<>":
-                            search_string = key.strip("<>")
-                        else:
-                            search_string = (
-                                self.subst_delims[args.subst_mode][0]
-                                + key
-                                + self.subst_delims[args.subst_mode][1]
-                            )
+                    if not value:
+                        logger.warning(f"No value for key '{key}'.")
 
-                            export_filename = Path(
-                                str(export_filename).replace(search_string, value)
-                            )
-                        self.new_doc = self.new_doc.replace(search_string, value)
+                    if self.new_doc == self.document:
+                        logger.warning(f"No replacement for key '{key}'.")
 
-                        if not value:
-                            logger.warning(
-                                f"Value of key '{key}' empty in row '{row}'."
-                            )
+                self.save()
 
-            if self.new_doc == self.document:
-                logger.error(f"Nothing replaced from row '{row}'. Not exporting.")
-            else:
-                page_filename = TempDir / Path(
-                    f"{export_filename.stem}_{page}{export_filename.suffix}"
-                )
-                pages_filenames.append(page_filename)
-                if self.export(page_filename):
-                    return
+    def save(self):
 
-            print(f"Merge {pages_filenames} to {export_filename}")
-            # delete Temp Dir with Files?
+        page_filename = TempDir / Path(
+            f"{self.export_filename.stem}_{self.page}{self.export_filename.suffix}"
+        )
 
-    def export(self, export_filename: Path):
-        # use save from inkex.extensions.OutputExtension?
+        if self.export_filename.suffix in self.multipage_formats:
+            self.page_filename_map[self.export_filename] = page_filename
 
-        if not export_filename.parent.is_dir():
+        self.export_filename = page_filename
+
+        if not self.export_filename.parent.is_dir():
             logger.error("The selected output folder does not exist.")
             return True
 
         if args.export_type == "svg":
-            # would like to use 'write_svg', but it cannot overwrite, nor handle strings for writing...:
-            # write_svg(self.new_doc, export_filename)
-            with open(export_filename, "w", encoding="utf-8") as file:
+            with open(self.export_filename, "w", encoding="utf-8") as file:
                 file.write(self.new_doc)
         else:
-            # create a temporary svg file from our string
-            temp_svg_name = Path(f"{export_filename.stem}.svg")
-
-            temp_svg_file = TempDir / temp_svg_name
+            temp_svg_file = TempDir / self.export_filename.with_suffix(".svg")
             with open(temp_svg_file, "w", encoding="utf-8") as file:
                 file.write(self.new_doc)
 
             cmd = self.actions[args.export_type].format(
-                dpi=args.export_dpi, file_out=export_filename, file_in=temp_svg_file
+                dpi=args.export_dpi,
+                file_out=self.export_filename,
+                file_in=temp_svg_file,
             )
             ret = subprocess.run(  # nosec
-                shlex.split(cmd, posix=os.name == "posix"),
+                shlex.split(cmd, posix=(os.name == "posix")),
                 stdout=sys.stdout,
                 stderr=sys.stderr,
             ).returncode
             if ret:
                 logger.error(f"Inkscape return code {ret}")
 
+    def merge(self):
+        # if args.export_type == "pdf":
+        if self.export_filename.suffix in self.multipage_formats:
+            print(f"Merge {self.page_filename_map} to {self.export_filename}")
+            # delete Temp Dir with Files?
+
     def run(self):
-        self.effect()
+        self.page_filename_map = {}
+        for self.page, self.svg_in_file in enumerate(args.svg_in_files):
+            logger.info(f"Processing page {self.page + 1}/{len(args.svg_in_files)}")
+            self.process()
+        self.merge()
 
 
 logger.debug(args)
