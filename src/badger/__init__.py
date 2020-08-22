@@ -272,15 +272,19 @@ class Badger:
                 self.save()
 
     def save(self):
-
-        page_filename = TempDir / Path(
+        page_filename = (
             f"{self.export_filename.stem}_{self.page}{self.export_filename.suffix}"
         )
-
         if self.export_filename.suffix in self.multipage_formats:
-            self.page_filename_map[self.export_filename] = page_filename
+            page_filepath = TempDir / Path(page_filename)
+        else:
+            page_filepath = self.export_filename.with_name(page_filename)
 
-        self.export_filename = page_filename
+        if self.export_filename not in self.page_filepath_map.keys():
+            self.page_filepath_map[self.export_filename] = []
+        self.page_filepath_map[self.export_filename] += [page_filepath]
+
+        self.export_filename = page_filepath
 
         if not self.export_filename.parent.is_dir():
             logger.error("The selected output folder does not exist.")
@@ -310,11 +314,11 @@ class Badger:
     def merge(self):
         # if args.export_type == "pdf":
         if self.export_filename.suffix in self.multipage_formats:
-            print(f"Merge {self.page_filename_map} to {self.export_filename}")
+            logger.critical(f"Merge {self.page_filepath_map} to {self.export_filename}")
             # delete Temp Dir with Files?
 
     def run(self):
-        self.page_filename_map = {}
+        self.page_filepath_map = {}
         for self.page, self.svg_in_file in enumerate(args.svg_in_files):
             logger.info(f"Processing page {self.page + 1}/{len(args.svg_in_files)}")
             self.process()
@@ -325,14 +329,6 @@ logger.debug(args)
 
 
 def main():
-    """Return codes:
-    1: Not auto-merged
-    2: Unknown file extension
-    3: COM Application (Word, PowerPoint) not installed
-    4: File not found
-    5: Unknown git lfs pointer --check return code
-    6: Unexpected pywin32 com_error
-    """
     logger.debug(
         "Badger is logging to '%s'", logfile_path,
     )
