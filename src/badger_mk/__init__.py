@@ -148,7 +148,10 @@ def setup_root_logger(path: Path = DEFAULT_LOG_PATH) -> logging.Logger:
     logfile_path = Path(f"{Path(path) / Path(__file__).stem}.log")
     log_roll = logfile_path.is_file()
     file_handler = logging.handlers.RotatingFileHandler(
-        filename=logfile_path, mode="a", backupCount=9, encoding="utf-8",
+        filename=logfile_path,
+        mode="a",
+        backupCount=9,
+        encoding="utf-8",
     )
     if log_roll:
         file_handler.doRollover()
@@ -239,7 +242,9 @@ class Badger:
         self.load()
         with open(args.csv_in_file, "r", encoding="utf-8") as csvfile:
             data = csv.DictReader(
-                csvfile, dialect="excel", delimiter=self.col_delims[args.col_mode],
+                csvfile,
+                dialect="excel",
+                delimiter=self.col_delims[args.col_mode],
             )
             for row in data:
                 logger.info(f"Processing row {row}")
@@ -330,8 +335,8 @@ logger.debug(args)
 
 def main():
     logger.debug(
-        "Badger is logging to '%s'", logfile_path,
+        "Badger is logging to '%s'",
+        logfile_path,
     )
 
-
-Badger().run()
+    Badger().run()

@@ -10,10 +10,8 @@ files with data from a `csv` file.
 Installable with `pip` or [`pipx`][pipx] (recommended).
 
 ```cmd
-pipx install git+https://github.com/lcnittl/badger.git
+pipx install badger-mk
 ```
-
-**Note:** Adding [PyPI][pypi] support is planned.
 
 ### CLI
 
