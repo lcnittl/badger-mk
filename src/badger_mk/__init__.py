@@ -33,6 +33,7 @@ import logging
 import logging.handlers
 import os
 import shlex
+import shutil
 import subprocess  # nosec
 import sys
 import tempfile
@@ -132,7 +133,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def setup_root_logger(path: Path = DEFAULT_LOG_PATH) -> logging.Logger:
+def setup_root_logger() -> logging.Logger:
     global logfile_path
 
     logger = logging.getLogger()
@@ -145,25 +146,6 @@ def setup_root_logger(path: Path = DEFAULT_LOG_PATH) -> logging.Logger:
     for module, loglevel in module_loglevel_map.items():
         logging.getLogger(module).setLevel(loglevel)
     """
-
-    logfile_path = Path(f"{Path(path) / Path(__file__).stem}.log")
-    log_roll = logfile_path.is_file()
-    file_handler = logging.handlers.RotatingFileHandler(
-        filename=logfile_path,
-        mode="a",
-        backupCount=9,
-        encoding="utf-8",
-    )
-    if log_roll:
-        file_handler.doRollover()
-    file_handler.setLevel(args.log)
-    file_handler.setFormatter(
-        logging.Formatter(
-            fmt="[%(asctime)s.%(msecs)03d][%(name)s:%(levelname).4s] %(message)s",
-            datefmt="%Y-%m-%dT%H:%M:%S",
-        )
-    )
-    logger.addHandler(file_handler)
 
     console_handler = colorlog.StreamHandler()
     console_handler.setLevel(args.verbosity)
@@ -199,8 +181,7 @@ def setup_root_logger(path: Path = DEFAULT_LOG_PATH) -> logging.Logger:
 
 
 args = parse_args()
-TempDir = Path(tempfile.mkdtemp(prefix="badger_"))
-root_logger = setup_root_logger(path=TempDir)
+root_logger = setup_root_logger()
 
 
 class Badger:
@@ -228,24 +209,24 @@ class Badger:
 
     multipage_formats = [".pdf"]
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.tempdir = Path(tempfile.mkdtemp(prefix="badger_"))
+        logger.debug("Badger tempdir is '%s'", self.tempdir)
 
-    def __del__(self):
-        print("WOULD BE DELETING TEMPDIR NOW")
-        # shutil.rmtree(self.tempdir)
+    def __del__(self) -> None:
+        logger.debug("Removing tempdir")
+        shutil.rmtree(self.tempdir)
 
-    def load(self):
+    def load(self) -> None:
         with open(self.svg_in_file, "rb") as svgfile:
             self.document = lxml.etree.parse(svgfile)  # nosec
 
-    def process(self):
+    def process(self) -> None:
         def replace_in_node(text, subst, value):
             if text:
                 text = text.replace(subst, value)
             return text
 
-        self.load()
         with open(args.csv_in_file, "r", encoding="utf-8") as csvfile:
             data = csv.DictReader(
                 csvfile,
@@ -256,82 +237,86 @@ class Badger:
             # Iterate over data rows
             for row in data:
                 logger.info(f"Processing row {row}")
-
-                self.document = self.document
-
                 self.export_filename = args.export_filename
 
-                # Iterate over columns
-                for key, value in row.items():
-                    logger.debug("Processing column: '%s'", key)
+                for self.page, self.svg_in_file in enumerate(args.svg_in_files):
+                    logger.info(
+                        f"Processing page {self.page + 1}/{len(args.svg_in_files)}"
+                    )
+                    self.load()
 
-                    if not value:
-                        logger.warning(f"No value for key '{key}'.")
-                        continue
+                    # Iterate over columns
+                    for key, value in row.items():
+                        logger.debug("Processing column: '%s'", key)
 
-                    tag, subst = key.split(":")
-                    if tag == "text":
-                        subst = (
-                            self.subst_delims[args.subst_mode][0]
-                            + subst
-                            + self.subst_delims[args.subst_mode][1]
+                        if not value:
+                            logger.warning(f"No value for key '{key}'.")
+                            continue
+
+                        tag, subst = key.split(":")
+                        if tag == "text":
+                            subst = (
+                                self.subst_delims[args.subst_mode][0]
+                                + subst
+                                + self.subst_delims[args.subst_mode][1]
+                            )
+
+                            self.export_filename = Path(
+                                str(self.export_filename).replace(subst, value)
+                            )
+                        logger.debug(
+                            "Will replace '%s' in '%s' nodes with '%s'",
+                            subst,
+                            tag,
+                            value,
                         )
 
-                        self.export_filename = Path(
-                            str(self.export_filename).replace(subst, value)
+                        nodes = self.document.iterfind(
+                            f".//svg:{tag}",
+                            namespaces={"svg": "http://www.w3.org/2000/svg"},
                         )
-                    logger.debug(
-                        "Will replace '%s' in '%s' nodes with '%s'", subst, tag, value
-                    )
 
-                    nodes = self.document.iterfind(
-                        f".//svg:{tag}",
-                        namespaces={"svg": "http://www.w3.org/2000/svg"},
-                    )
-
-                    for node in nodes:
-                        for subnode in node.iter():
-                            subnode.text = replace_in_node(subnode.text, subst, value)
-                            if node != subnode:
-                                subnode.tail = replace_in_node(
-                                    subnode.tail, subst, value
+                        for node in nodes:
+                            for subnode in node.iter():
+                                subnode.text = replace_in_node(
+                                    subnode.text, subst, value
                                 )
+                                if node != subnode:
+                                    subnode.tail = replace_in_node(
+                                        subnode.tail, subst, value
+                                    )
 
-                    # TODO: Implement check for missing substitution
-                    # logger.warning(f"No replacement for key '{key}'.")
+                        # TODO: Implement check for missing substitution
+                        # logger.warning(f"No replacement for key '{key}'.")
 
-                self.save()
+                    self.save()
+                self.merge()
 
-    def save(self):
-        page_filename = (
+    def save(self) -> None:
+        page_filename = Path(
             f"{self.export_filename.stem}_{self.page}{self.export_filename.suffix}"
         )
         if self.export_filename.suffix in self.multipage_formats:
-            page_filepath = TempDir / Path(page_filename)
+            page_filepath = self.tempdir / page_filename
         else:
-            page_filepath = self.export_filename.with_name(page_filename)
+            page_filepath = self.export_filename.with_name(page_filename.name)
+            if not self.export_filename.parent.is_dir():
+                logger.error("The selected output folder does not exist.")
+                return True
 
-        if self.export_filename not in self.page_filepath_map.keys():
-            self.page_filepath_map[self.export_filename] = []
-        self.page_filepath_map[self.export_filename] += [page_filepath]
-
-        self.export_filename = page_filepath
-
-        if not self.export_filename.parent.is_dir():
-            logger.error("The selected output folder does not exist.")
-            return True
+        logger.info("Saving file as '%s'", page_filepath)
 
         if args.export_type == "svg":
-            with open(self.export_filename, "w", encoding="utf-8") as file:
-                file.write(self.document)
-        else:
-            temp_svg_file = TempDir / self.export_filename.with_suffix(".svg")
+            with open(page_filepath, "wb") as file:
+                self.document.write(file, encoding="utf-8")
+        """else:
+            temp_svg_file = self.tempdir / page_filepath.with_suffix(".svg")
             with open(temp_svg_file, "w", encoding="utf-8") as file:
                 file.write(self.document)
 
             cmd = self.actions[args.export_type].format(
                 dpi=args.export_dpi,
-                file_out=self.export_filename,
+                file_out=page_filepath,
                 file_in=temp_svg_file,
             )
             ret = subprocess.run(  # nosec
@@ -340,29 +325,13 @@ class Badger:
                 stderr=sys.stderr,
             ).returncode
             if ret:
-                logger.error(f"Inkscape return code {ret}")
+                logger.error(f"Inkscape return code {ret}")"""
 
-    def merge(self):
+    def merge(self) -> None:
         # if args.export_type == "pdf":
         if self.export_filename.suffix in self.multipage_formats:
             logger.critical(f"Merge {self.page_filepath_map} to {self.export_filename}")
             # delete Temp Dir with Files?
 
-    def run(self):
-        self.page_filepath_map = {}
-        for self.page, self.svg_in_file in enumerate(args.svg_in_files):
-            logger.info(f"Processing page {self.page + 1}/{len(args.svg_in_files)}")
-            self.process()
-        self.merge()
-
-
-logger.debug(args)
-
-
-def main():
-    logger.debug(
-        "Badger is logging to '%s'",
-        logfile_path,
-    )
-
-    Badger().run()
+    def run(self) -> None:
+        self.process()
