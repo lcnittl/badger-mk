@@ -37,8 +37,10 @@ import shutil
 import subprocess  # nosec
 import sys
 import tempfile
+import urllib.error
 from pathlib import Path
 
+import cairosvg
 import colorlog
 import lxml.etree  # nosec  # noqa DUO107
 
@@ -222,7 +224,7 @@ class Badger:
 
     def __del__(self) -> None:
         logger.debug("Removing tempdir")
-        shutil.rmtree(self.tempdir)
+        # shutil.rmtree(self.tempdir)
 
     def load(self) -> None:
         with open(self.svg_in_file, "rb") as svgfile:
@@ -272,8 +274,6 @@ class Badger:
                     if ns_attrib("xlink", "href") in node.attrib:
                         href_filepath = Path(node.attrib[ns_attrib("xlink", "href")])
                         href_filename = href_filepath.name
-                        print(subst)
-                        print("#" * 64)
                         if subst == href_filename:
                             if ns_attrib("sodipodi", "absref") in node.attrib:
                                 node.attrib.pop(ns_attrib("sodipodi", "absref"))
@@ -323,7 +323,7 @@ class Badger:
                     self.save()
                 self.merge()
 
-    def save(self) -> None:
+    def save(self) -> int:
         page_filename = Path(
             f"{self.export_filename.stem}_{self.page}{self.export_filename.suffix}"
         )
@@ -331,24 +331,26 @@ class Badger:
             page_filepath = self.tempdir / page_filename
         else:
             page_filepath = self.export_filename.with_name(page_filename.name)
-            if not self.export_filename.parent.is_dir():
+            if not page_filepath.parent.is_dir():
                 logger.error("The selected output folder does not exist.")
-                return True
+                return 1
 
-        logger.info("Saving file as '%s'", page_filepath)
+        logger.info("Saving file as '%s'", page_filepath.with_suffix(".svg"))
+        with open(page_filepath.with_suffix(".svg"), "wb") as file:
+            self.document.write(
+                file, encoding="utf-8", xml_declaration=True, standalone=False
+            )  # pretty_print=True screws svg
 
-        if args.export_type == "svg":
-            with open(page_filepath, "wb") as file:
+        if args.export_type == "pdf":
+            try:
+                cairosvg.svg2pdf(
+                    url=str(page_filepath.with_suffix(".svg")),
+                    write_to=str(page_filepath.with_suffix(".pdf")),
+                )
+            except urllib.error.URLError:
+                logger.error("Missing image file!")  # TODO: Read filename
 
-                self.document.write(
-                    file, encoding="utf-8", xml_declaration=True, standalone=False
-                )  # pretty_print=True screws svg
-        """else:
-            temp_svg_file = self.tempdir / page_filepath.with_suffix(".svg")
-            with open(temp_svg_file, "w", encoding="utf-8") as file:
-                file.write(self.document)
-
-            cmd = self.actions[args.export_type].format(
+            """cmd = self.actions[args.export_type].format(
                 dpi=args.export_dpi,
                 file_out=page_filepath,
                 file_in=temp_svg_file,
@@ -363,9 +365,10 @@ class Badger:
 
     def merge(self) -> None:
         # if args.export_type == "pdf":
-        if self.export_filename.suffix in self.multipage_formats:
-            logger.critical(f"Merge {self.page_filepath_map} to {self.export_filename}")
-            # delete Temp Dir with Files?
+        # if self.export_filename.suffix in self.multipage_formats:
+        #    logger.critical(f"Merge {self.page_filepath_map} to {self.export_filename}")
+        # delete Temp Dir with Files?
+        pass
 
     def run(self) -> None:
         self.process()
