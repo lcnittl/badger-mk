@@ -25,7 +25,7 @@ in an SVG file and to then export the result to various file formats.
 
 This is useful e.g. for generating images for name badges and other similar items.
 """
-
+from __future__ import annotations
 
 import argparse
 import csv
@@ -187,6 +187,13 @@ root_logger = setup_root_logger()
 class Badger:
     """Generate image files by replacing variables in the current file"""
 
+    xmlns_map = {
+        None: "http://www.w3.org/2000/svg",
+        "sodipodi": "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd",
+        "svg": "http://www.w3.org/2000/svg",
+        "xlink": "http://www.w3.org/1999/xlink",
+    }
+
     subst_delims = {
         "jinja": (r"{{ ", r" }}"),
         "win": (r"%", r"%"),
@@ -222,10 +229,57 @@ class Badger:
             self.document = lxml.etree.parse(svgfile)  # nosec
 
     def process(self) -> None:
-        def replace_in_node(text, subst, value):
-            if text:
-                text = text.replace(subst, value)
-            return text
+        def ns_attrib(namespace: str, attrib: str) -> str:
+            ns_attrib = "{" + self.xmlns_map[namespace] + "}" + attrib
+            return ns_attrib
+
+        def calc_subst(subst: str) -> str:
+            if tag == "text":
+                subst = (
+                    self.subst_delims[args.subst_mode][0]
+                    + subst
+                    + self.subst_delims[args.subst_mode][1]
+                )
+
+                self.export_filename = Path(
+                    str(self.export_filename).replace(subst, value)
+                )
+            logger.debug(
+                "Will replace '%s' in '%s' nodes with '%s'",
+                subst,
+                tag,
+                value,
+            )
+            return subst
+
+        def subst_in_nodes(tag: str, nodes: list) -> None:
+            if tag == "text":
+                for node in nodes:
+                    for subnode in node.iter():
+                        subnode.text = (
+                            subnode.text.replace(subst, value)
+                            if subnode.text
+                            else subnode.text
+                        )
+                        if node != subnode:
+                            subnode.tail = (
+                                subnode.tail.replace(subst, value)
+                                if subnode.tail
+                                else subnode.tail
+                            )
+            elif tag == "image":
+                for node in nodes:
+                    if ns_attrib("xlink", "href") in node.attrib:
+                        href_filepath = Path(node.attrib[ns_attrib("xlink", "href")])
+                        href_filename = href_filepath.name
+                        print(subst)
+                        print("#" * 64)
+                        if subst == href_filename:
+                            if ns_attrib("sodipodi", "absref") in node.attrib:
+                                node.attrib.pop(ns_attrib("sodipodi", "absref"))
+                            node.attrib[ns_attrib("xlink", "href")] = (
+                                self.svg_in_file.parent / href_filepath.with_name(value)
+                            ).as_uri()
 
         with open(args.csv_in_file, "r", encoding="utf-8") as csvfile:
             data = csv.DictReader(
@@ -254,37 +308,14 @@ class Badger:
                             continue
 
                         tag, subst = key.split(":")
-                        if tag == "text":
-                            subst = (
-                                self.subst_delims[args.subst_mode][0]
-                                + subst
-                                + self.subst_delims[args.subst_mode][1]
-                            )
-
-                            self.export_filename = Path(
-                                str(self.export_filename).replace(subst, value)
-                            )
-                        logger.debug(
-                            "Will replace '%s' in '%s' nodes with '%s'",
-                            subst,
-                            tag,
-                            value,
-                        )
+                        subst = calc_subst(subst)
 
                         nodes = self.document.iterfind(
-                            f".//svg:{tag}",
-                            namespaces={"svg": "http://www.w3.org/2000/svg"},
+                            f".//{tag}",
+                            namespaces=self.xmlns_map,
                         )
 
-                        for node in nodes:
-                            for subnode in node.iter():
-                                subnode.text = replace_in_node(
-                                    subnode.text, subst, value
-                                )
-                                if node != subnode:
-                                    subnode.tail = replace_in_node(
-                                        subnode.tail, subst, value
-                                    )
+                        subst_in_nodes(tag, nodes)
 
                         # TODO: Implement check for missing substitution
                         # logger.warning(f"No replacement for key '{key}'.")
@@ -308,7 +339,10 @@ class Badger:
 
         if args.export_type == "svg":
             with open(page_filepath, "wb") as file:
-                self.document.write(file, encoding="utf-8")
+
+                self.document.write(
+                    file, encoding="utf-8", xml_declaration=True, standalone=False
+                )  # pretty_print=True screws svg
         """else:
             temp_svg_file = self.tempdir / page_filepath.with_suffix(".svg")
             with open(temp_svg_file, "w", encoding="utf-8") as file:
