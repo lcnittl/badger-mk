@@ -46,8 +46,6 @@ import lxml.etree  # nosec  # noqa DUO107
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LOG_PATH = Path(".")
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -85,7 +83,7 @@ def parse_args() -> argparse.Namespace:
         "--export-type",
         dest="export_type",
         choices=["eps", "pdf", "png", "ps", "svg"],  # self.actions.keys(),
-        default="pdf",
+        default="",
         help="File format to export to",
     )
     output_grp.add_argument(
@@ -208,18 +206,13 @@ class Badger:
         "tab": (r"\t"),
     }
 
-    actions = {
-        "eps": "inkscape --export-dpi={dpi} --export-text-to-path --export-filename={file_out} {file_in}",
-        "png": "inkscape --export-dpi={dpi} --export-filename={file_out} {file_in}",
-        "pdf": "inkscape --export-dpi={dpi} --export-pdf-version=1.5 --export-text-to-path --export-filename={file_out} {file_in}",
-        "ps": "inkscape --export-dpi={dpi} --export-text-to-path --export-filename={file_out} {file_in}",
-        "svg": "",
-    }
-
     multipage_formats = [".pdf"]
 
     def __init__(self) -> None:
         self.tempdir = Path(tempfile.mkdtemp(prefix="badger_"))
+        self.out_ext = (
+            f".{args.export_type}" if args.export_type else args.export_filename.suffix
+        )
         logger.debug("Badger tempdir is '%s'", self.tempdir)
 
     def __del__(self) -> None:
@@ -324,44 +317,67 @@ class Badger:
                 self.merge()
 
     def save(self) -> int:
-        page_filename = Path(
+        if not self.export_filename.parent.is_dir():
+            logger.error("The specified output folder does not exist.")
+            return 1
+
+        self.svg_out_dir = (
+            self.export_filename.parent if self.out_ext == ".svg" else self.tempdir
+        )
+        self.page_filename = Path(
             f"{self.export_filename.stem}_{self.page}{self.export_filename.suffix}"
         )
-        if self.export_filename.suffix in self.multipage_formats:
-            page_filepath = self.tempdir / page_filename
-        else:
-            page_filepath = self.export_filename.with_name(page_filename.name)
-            if not page_filepath.parent.is_dir():
-                logger.error("The selected output folder does not exist.")
-                return 1
 
-        logger.info("Saving file as '%s'", page_filepath.with_suffix(".svg"))
-        with open(page_filepath.with_suffix(".svg"), "wb") as file:
+        logger.info(
+            "Saving file as '%s'",
+            self.svg_out_dir / self.page_filename.with_suffix(".svg"),
+        )
+        with open(
+            self.svg_out_dir / self.page_filename.with_suffix(".svg"), "wb"
+        ) as file:
             self.document.write(
                 file, encoding="utf-8", xml_declaration=True, standalone=False
             )  # pretty_print=True screws svg
 
-        if args.export_type == "pdf":
+        if self.out_ext != ".svg":
+            self.convert()
+
+    def convert(self) -> None:
+        convert_out_dir = (
+            self.export_filename.parent
+            if self.out_ext not in self.multipage_formats
+            else self.tempdir
+        )
+        logger.info(
+            "Converting file to '%s'",
+            convert_out_dir / self.page_filename.with_suffix(self.out_ext),
+        )
+
+        if self.out_ext == ".pdf":
             try:
                 cairosvg.svg2pdf(
-                    url=str(page_filepath.with_suffix(".svg")),
-                    write_to=str(page_filepath.with_suffix(".pdf")),
+                    url=str(self.svg_out_dir / self.page_filename.with_suffix(".svg")),
+                    write_to=str(
+                        convert_out_dir / self.page_filename.with_suffix(self.out_ext)
+                    ),
                 )
-            except urllib.error.URLError:
-                logger.error("Missing image file!")  # TODO: Read filename
-
-            """cmd = self.actions[args.export_type].format(
-                dpi=args.export_dpi,
-                file_out=page_filepath,
-                file_in=temp_svg_file,
-            )
-            ret = subprocess.run(  # nosec
-                shlex.split(cmd, posix=(os.name == "posix")),
-                stdout=sys.stdout,
-                stderr=sys.stderr,
-            ).returncode
-            if ret:
-                logger.error(f"Inkscape return code {ret}")"""
+            except urllib.error.URLError as exc:
+                logger.error(
+                    "Missing linked image, export file might be missing: %s", exc.reason
+                )  # TODO: Read filename
+        elif self.out_ext == ".png":
+            try:
+                cairosvg.svg2png(
+                    url=str(self.svg_out_dir / self.page_filename.with_suffix(".svg")),
+                    write_to=str(
+                        convert_out_dir / self.page_filename.with_suffix(self.out_ext)
+                    ),
+                    dpi=args.export_dpi,
+                )
+            except urllib.error.URLError as exc:
+                logger.error(
+                    "Missing linked image, export file might be missing: %s", exc.reason
+                )  # TODO: Read filename
 
     def merge(self) -> None:
         # if args.export_type == "pdf":
