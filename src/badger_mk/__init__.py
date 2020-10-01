@@ -17,12 +17,14 @@ import shutil
 import subprocess  # nosec
 import sys
 import tempfile
+import time
 import urllib.error
 from pathlib import Path
 
 import cairosvg
 import colorlog
 import lxml.etree  # nosec  # noqa DUO107
+from PyPDF2 import PdfFileMerger
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +199,7 @@ class Badger:
 
     def __del__(self) -> None:
         logger.debug("Removing tempdir")
-        # shutil.rmtree(self.tempdir)
+        shutil.rmtree(self.tempdir)
 
     def load(self) -> None:
         with open(self.svg_in_file, "rb") as svgfile:
@@ -265,6 +267,7 @@ class Badger:
             for row in data:
                 logger.info(f"Processing row {row}")
                 self.export_filename = args.export_filename
+                self.single_pages = []
 
                 for self.page, self.svg_in_file in enumerate(args.svg_in_files):
                     logger.info(
@@ -294,7 +297,9 @@ class Badger:
                         # logger.warning(f"No replacement for key '{key}'.")
 
                     self.save()
-                self.merge()
+
+                if self.out_ext in self.multipage_formats:
+                    self.merge()
 
     def save(self) -> int:
         if not self.export_filename.parent.is_dir():
@@ -323,11 +328,13 @@ class Badger:
             self.convert()
 
     def convert(self) -> None:
-        convert_out_dir = (
-            self.export_filename.parent
-            if self.out_ext not in self.multipage_formats
-            else self.tempdir
-        )
+        if self.out_ext in self.multipage_formats:
+            convert_out_dir = self.tempdir
+            self.single_pages += [
+                convert_out_dir / self.page_filename.with_suffix(self.out_ext)
+            ]
+        else:
+            convert_out_dir = self.export_filename.parent
         logger.info(
             "Converting file to '%s'",
             convert_out_dir / self.page_filename.with_suffix(self.out_ext),
@@ -349,22 +356,23 @@ class Badger:
             try:
                 cairosvg.svg2png(
                     url=str(self.svg_out_dir / self.page_filename.with_suffix(".svg")),
-                    write_to=str(
-                        convert_out_dir / self.page_filename.with_suffix(self.out_ext)
-                    ),
+                    write_to=str(convert_out_dir / self.page_filename),
                     dpi=args.export_dpi,
                 )
             except urllib.error.URLError as exc:
                 logger.error(
                     "Missing linked image, export file might be missing: %s", exc.reason
-                )  # TODO: Read filename
+                )
 
     def merge(self) -> None:
-        # if args.export_type == "pdf":
-        # if self.export_filename.suffix in self.multipage_formats:
-        #    logger.critical(f"Merge {self.page_filepath_map} to {self.export_filename}")
-        # delete Temp Dir with Files?
-        pass
+        if self.out_ext == ".pdf":
+            merger = PdfFileMerger()
+
+            logger.info("Merging pages to '%s'", self.export_filename)
+            for single_page in self.single_pages:
+                merger.append(str(single_page))
+            merger.write(str(self.export_filename))
+            merger.close()
 
     def run(self) -> None:
         self.process()
