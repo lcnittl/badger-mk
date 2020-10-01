@@ -17,10 +17,6 @@ pipx install badger-mk
 
 TBA.
 
-## Reqirements
-
-- Inkscape (for exporting to other formats, executable must be in path variable)
-
 ## Platform
 
 Should work on all major platforms.
