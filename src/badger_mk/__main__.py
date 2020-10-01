@@ -3,6 +3,6 @@
 
 Create graphic files from templates via data substitution.
 """
-import badger
+import badger_mk
 
-badger.main()
+badger_mk.main()

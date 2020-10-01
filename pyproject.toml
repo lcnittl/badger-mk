@@ -29,4 +29,4 @@ include_trailing_comma = true
 force_grid_wrap = 0
 use_parentheses = true
 line_length = 88
-known_third_party = ["badger", "colorlog", "setuptools"]
+known_third_party = ["badger_mk", "colorlog", "lxml", "setuptools"]

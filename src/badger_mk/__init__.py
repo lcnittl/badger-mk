@@ -39,6 +39,7 @@ import tempfile
 from pathlib import Path
 
 import colorlog
+import lxml.etree  # nosec  # noqa DUO107
 
 logger = logging.getLogger(__name__)
 
@@ -235,10 +236,15 @@ class Badger:
         # shutil.rmtree(self.tempdir)
 
     def load(self):
-        with open(self.svg_in_file, "r", encoding="utf-8") as svgfile:
-            self.document = svgfile.read()
+        with open(self.svg_in_file, "rb") as svgfile:
+            self.document = lxml.etree.parse(svgfile)  # nosec
 
     def process(self):
+        def replace_in_node(text, subst, value):
+            if text:
+                text = text.replace(subst, value)
+            return text
+
         self.load()
         with open(args.csv_in_file, "r", encoding="utf-8") as csvfile:
             data = csv.DictReader(
@@ -246,33 +252,53 @@ class Badger:
                 dialect="excel",
                 delimiter=self.col_delims[args.col_mode],
             )
+
+            # Iterate over data rows
             for row in data:
                 logger.info(f"Processing row {row}")
 
-                self.new_doc = self.document
+                self.document = self.document
 
                 self.export_filename = args.export_filename
 
+                # Iterate over columns
                 for key, value in row.items():
-                    if key[0] + key[-1] == "<>":
-                        key_subst = key.strip("<>")
-                    else:
-                        key_subst = (
+                    logger.debug("Processing column: '%s'", key)
+
+                    if not value:
+                        logger.warning(f"No value for key '{key}'.")
+                        continue
+
+                    tag, subst = key.split(":")
+                    if tag == "text":
+                        subst = (
                             self.subst_delims[args.subst_mode][0]
-                            + key
+                            + subst
                             + self.subst_delims[args.subst_mode][1]
                         )
 
                         self.export_filename = Path(
-                            str(self.export_filename).replace(key_subst, value)
+                            str(self.export_filename).replace(subst, value)
                         )
-                    self.new_doc = self.new_doc.replace(key_subst, value)
+                    logger.debug(
+                        "Will replace '%s' in '%s' nodes with '%s'", subst, tag, value
+                    )
 
-                    if not value:
-                        logger.warning(f"No value for key '{key}'.")
+                    nodes = self.document.iterfind(
+                        f".//svg:{tag}",
+                        namespaces={"svg": "http://www.w3.org/2000/svg"},
+                    )
 
-                    if self.new_doc == self.document:
-                        logger.warning(f"No replacement for key '{key}'.")
+                    for node in nodes:
+                        for subnode in node.iter():
+                            subnode.text = replace_in_node(subnode.text, subst, value)
+                            if node != subnode:
+                                subnode.tail = replace_in_node(
+                                    subnode.tail, subst, value
+                                )
+
+                    # TODO: Implement check for missing substitution
+                    # logger.warning(f"No replacement for key '{key}'.")
 
                 self.save()
 
@@ -297,11 +323,11 @@ class Badger:
 
         if args.export_type == "svg":
             with open(self.export_filename, "w", encoding="utf-8") as file:
-                file.write(self.new_doc)
+                file.write(self.document)
         else:
             temp_svg_file = TempDir / self.export_filename.with_suffix(".svg")
             with open(temp_svg_file, "w", encoding="utf-8") as file:
-                file.write(self.new_doc)
+                file.write(self.document)
 
             cmd = self.actions[args.export_type].format(
                 dpi=args.export_dpi,
