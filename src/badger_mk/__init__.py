@@ -265,7 +265,7 @@ class Badger:
 
             # Iterate over data rows
             for row in data:
-                logger.info(f"Processing row {row}")
+                logger.debug(f"Processing row {row}")
                 self.export_filename = args.export_filename
                 self.single_pages = []
 
