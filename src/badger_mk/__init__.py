@@ -253,17 +253,53 @@ class Badger:
                             ).as_uri()
 
         with open(args.csv_in_file, "r", encoding="utf-8") as csvfile:
+            logger.info("Reading CSV data...")
             data = csv.DictReader(
                 csvfile,
                 dialect="excel",
                 delimiter=self.col_delims[args.col_mode],
             )
+            logger.debug("Done")
 
+            logger.info("Checking column headers...")
+            headers = data.fieldnames
+            sanitized_headers = []
+            for header in headers:
+                logger.debug("Checking column header: '%s'", header)
+
+                if header.count(":") < 1:
+                    logger.warning(
+                        "Column '%s' will be ignored, as its name is not matching '<tag>:<substition pattern>' format",
+                        header,
+                    )
+                    continue
+
+                logger.debug("Column header OK")
+                sanitized_headers += [header]
+            logger.debug("Done")
+
+            logger.info("Processing datasets...")
             # Iterate over data rows
             for row in data:
-                logger.debug(f"Processing row {row}")
+                logger.info("Processing next dataset...")
+                logger.debug("row = %s", row)
                 self.export_filename = args.export_filename
                 self.single_pages = []
+
+                # Iterate over columns for sanitation
+                logger.info("Checking row values...")
+                sanitized_row = {}
+                for header in sanitized_headers:
+                    value = row[header]
+                    logger.debug("Checking value of: '%s'", header)
+
+                    if not value:
+                        logger.warning("No value for header '%s'.", header)
+                        continue
+
+                    logger.debug("Column OK")
+                    sanitized_row[header] = value
+                logger.debug("Done")
 
                 for self.page, self.svg_in_file in enumerate(args.svg_in_files):
                     logger.info(
@@ -272,14 +308,10 @@ class Badger:
                     self.load()
 
                     # Iterate over columns
-                    for key, value in row.items():
-                        logger.debug("Processing column: '%s'", key)
+                    for header, value in sanitized_row.items():  # noqa B007
+                        logger.debug("Processing column: '%s'", header)
 
-                        if not value:
-                            logger.warning(f"No value for key '{key}'.")
-                            continue
-
-                        tag, subst = key.split(":")
+                        tag, subst = header.split(":", 1)
                         subst = calc_subst(subst)
 
                         nodes = self.document.iterfind(
@@ -290,12 +322,13 @@ class Badger:
                         subst_in_nodes(tag, nodes)
 
                         # TODO: Implement check for missing substitution
-                        # logger.warning(f"No replacement for key '{key}'.")
+                        # logger.warning(f"No replacement for header '{header}'.")
 
                     self.save()
 
                 if self.out_ext in self.multipage_formats:
                     self.merge()
+            logger.debug("Done")
 
     def save(self) -> int:
         if not self.export_filename.parent.is_dir():
