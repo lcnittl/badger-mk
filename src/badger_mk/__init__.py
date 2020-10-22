@@ -44,14 +44,6 @@ def parse_args() -> argparse.Namespace:
         choices=list(logging._nameToLevel.keys()),
         help="Console log level",
     )
-    logging_grp.add_argument(
-        "-L",
-        "--log",
-        default="DEBUG",
-        type=str.upper,
-        choices=list(logging._nameToLevel.keys()),
-        help="File log level",
-    )
 
     output_grp = parser.add_argument_group(title="Output")
     output_grp.add_argument(
@@ -117,8 +109,6 @@ def parse_args() -> argparse.Namespace:
 
 
 def setup_root_logger() -> logging.Logger:
-    global logfile_path
-
     logger = logging.getLogger()
     logger.setLevel(logging.NOTSET)
 
