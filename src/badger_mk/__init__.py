@@ -19,7 +19,8 @@ import sys
 import tempfile
 import time
 import urllib.error
-from pathlib import Path
+import urllib.parse
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import cairosvg
 import colorlog
@@ -247,7 +248,12 @@ class Badger:
             elif tag == "image":
                 for node in nodes:
                     if ns_attrib("xlink", "href") in node.attrib:
-                        href_filepath = Path(node.attrib[ns_attrib("xlink", "href")])
+                        href_fileuri = node.attrib[ns_attrib("xlink", "href")]
+                        # Inkscape tends to save relative paths with encoded backslash separators in windows
+                        href_filepath = urllib.parse.unquote(
+                            urllib.parse.urlparse(href_fileuri).path
+                        )
+                        href_filepath = Path(PureWindowsPath(href_filepath).as_posix())
                         href_filename = href_filepath.name
                         if subst == href_filename:
                             if ns_attrib("sodipodi", "absref") in node.attrib:
