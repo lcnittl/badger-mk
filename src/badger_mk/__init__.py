@@ -320,6 +320,24 @@ class Badger:
                 file, encoding="utf-8", xml_declaration=True, standalone=False
             )  # pretty_print=True screws svg
 
+        if True:  # Convert text to path
+            if not shutil.which("inkscape"):
+                # TODO: Check at beginning of script
+                logger.error("Converting text to path requires inkscape in PATH...")
+            else:
+                logger.info("Converting text to path")
+                cmd = "inkscape {io_file} --export-text-to-path --export-overwrite --export-filename={io_file}".format(
+                    io_file=self.svg_out_dir / self.page_filename.with_suffix(".svg")
+                )
+                inkscape_rc = subprocess.run(  # nosec
+                    shlex.split(cmd, posix=(os.name == "posiX"))
+                )
+
+            if inkscape_rc.returncode:
+                logger.error(
+                    "Inkscape exited with returncode %s", inkscape_rc.returncode
+                )
+
         if self.out_ext != ".svg":
             self.convert()
 
