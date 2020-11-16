@@ -20,6 +20,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.parse
+from importlib import metadata
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import cairosvg
@@ -27,12 +28,23 @@ import colorlog
 import lxml.etree  # nosec  # noqa DUO107
 from PyPDF2 import PdfFileMerger
 
+try:
+    __version__ = metadata.version("pyPFC")
+except metadata.PackageNotFoundError:
+    __version__ = None
+
 logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=str(__version__),
     )
 
     logging_grp = parser.add_argument_group(title="Logging")
