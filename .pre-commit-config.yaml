@@ -18,7 +18,6 @@ repos:
         additional_dependencies:
           - prettier@2.1.2
           - "@prettier/plugin-xml@0.12.0"
-        files: ""
   - repo: https://github.com/asottile/seed-isort-config
     rev: v2.2.0
     hooks:
