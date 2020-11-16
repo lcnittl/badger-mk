@@ -29,7 +29,7 @@ import lxml.etree  # nosec  # noqa DUO107
 from PyPDF2 import PdfFileMerger
 
 try:
-    __version__ = metadata.version("pyPFC")
+    __version__ = metadata.version("badger-mk")
 except metadata.PackageNotFoundError:
     __version__ = None
 
