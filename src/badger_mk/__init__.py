@@ -387,29 +387,24 @@ class Badger:
             convert_out_dir / self.page_filename.with_suffix(self.out_ext),
         )
 
-        if self.out_ext == ".pdf":
-            try:
+        try:
+            if self.out_ext == ".pdf":
                 cairosvg.svg2pdf(
                     url=str(self.svg_out_dir / self.page_filename.with_suffix(".svg")),
                     write_to=str(
                         convert_out_dir / self.page_filename.with_suffix(self.out_ext)
                     ),
                 )
-            except urllib.error.URLError as exc:
-                logger.error(
-                    "Missing linked image, export file might be missing: %s", exc.reason
-                )  # TODO: Read filename
-        elif self.out_ext == ".png":
-            try:
+            elif self.out_ext == ".png":
                 cairosvg.svg2png(
                     url=str(self.svg_out_dir / self.page_filename.with_suffix(".svg")),
                     write_to=str(convert_out_dir / self.page_filename),
                     dpi=args.export_dpi,
                 )
-            except urllib.error.URLError as exc:
-                logger.error(
-                    "Missing linked image, export file might be missing: %s", exc.reason
-                )
+        except urllib.error.URLError as exc:
+            logger.error(
+                "Missing linked image, export file might be missing: %s", exc.reason
+            )  # TODO: Read filename
 
     def merge(self) -> None:
         if self.out_ext == ".pdf":
