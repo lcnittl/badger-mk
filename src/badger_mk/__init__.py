@@ -252,7 +252,7 @@ class Badger:
                                 self.svg_in_file.parent / href_filepath.with_name(value)
                             ).as_uri()
 
-        with open(args.csv_in_file, "r", encoding="utf-8") as csvfile:
+        with open(args.csv_in_file, encoding="utf-8") as csvfile:
             logger.info("Reading CSV data...")
             data = csv.DictReader(
                 csvfile,
