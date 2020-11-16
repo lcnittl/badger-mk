@@ -1,7 +1,7 @@
 # Badger -- Badge Maker
 
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white.svg)](https://github.com/pre-commit/pre-commit)
-[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/lcnittl/pyPFC/master.svg)](https://results.pre-commit.ci/latest/github/lcnittl/pyPFC/master)
+[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/lcnittl/badger-mk/master.svg)](https://results.pre-commit.ci/latest/github/lcnittl/badger-mk/master)
 [![Code style: black](https://img.shields.io/badge/code_style-black-000000.svg)](https://github.com/psf/black)
 [![Code style: prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg)](https://github.com/prettier/prettier)
 
