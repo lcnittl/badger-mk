@@ -307,7 +307,6 @@ class Badger:
 
                     if not value:
                         logger.warning("No value for header '%s'.", header)
-                        continue
 
                     logger.debug("Column OK")
                     sanitized_row[header] = value
