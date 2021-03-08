@@ -312,7 +312,8 @@ class Badger:
                     sanitized_row[header] = value
                 logger.debug("Done")
 
-                for self.page, self.svg_in_file in enumerate(args.svg_in_files):
+                for self.page, svg_in_file in enumerate(args.svg_in_files):
+                    self.svg_in_file = svg_in_file.resolve()
                     logger.info(
                         f"Processing page {self.page + 1}/{len(args.svg_in_files)}"
                     )
