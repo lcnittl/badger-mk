@@ -3,6 +3,7 @@
 
 Create graphic files from templates via data substitution.
 """
+
 from __future__ import annotations
 
 import sys
