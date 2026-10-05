@@ -5,6 +5,7 @@ in an SVG file and to then export the result to various file formats.
 
 This is useful e.g. for generating images for name badges and other similar items.
 """
+
 from __future__ import annotations
 
 import argparse
